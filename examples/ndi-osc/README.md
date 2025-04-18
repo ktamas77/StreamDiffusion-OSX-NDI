@@ -9,6 +9,14 @@ This example demonstrates using NDI (Network Device Interface) with StreamDiffus
 - **NDI Output**: Output the processed video as an NDI source
 - **Visual Feedback**: OpenCV window shows the processed output
 
+## How It Works
+
+1. **Video Input**: The script connects to an NDI source (or falls back to webcam)
+2. **AI Processing**: StreamDiffusion applies AI-generated styles based on the prompt
+3. **OSC Server**: Listens for OSC messages to update parameters in real-time
+4. **Rendering**: Processed frames are displayed and sent as NDI output
+5. **Dynamic Control**: Prompts and parameters can be changed at any time via OSC
+
 ## Requirements
 
 - macOS (tested on macOS 15.3.2)
@@ -22,21 +30,33 @@ This example demonstrates using NDI (Network Device Interface) with StreamDiffus
 Follow the setup instructions in `examples/test-ndi/INSTALL.md` to set up a Python 3.10 environment with NDI bindings, then:
 
 ```bash
+# Activate the environment
+pyenv activate ndi-env
+
 # Install additional dependencies
 pip install python-osc==1.8.3
+
+# If you have activation issues, use the absolute path:
+~/.pyenv/versions/3.10.12/envs/ndi-env/bin/pip install python-osc==1.8.3
 ```
 
 ## Usage
 
 ```bash
-# Run with default settings
+# Run with default settings (with proper Python environment)
 python examples/ndi-osc/run_ndi_osc.py
+
+# If you have activation issues, use the absolute path:
+~/.pyenv/versions/3.10.12/envs/ndi-env/bin/python examples/ndi-osc/run_ndi_osc.py
 
 # Run with specific NDI source
 python examples/ndi-osc/run_ndi_osc.py --ndi_source_name "STUDIO (Camera)"
 
 # Run with custom OSC port
 python examples/ndi-osc/run_ndi_osc.py --osc_port 8000
+
+# Run with custom width/height for better performance
+python examples/ndi-osc/run_ndi_osc.py --width 256 --height 256
 ```
 
 ## OSC Commands
@@ -79,6 +99,19 @@ The script accepts the following parameters:
 - `--ndi_output_name`: Name for the NDI output stream (default: "StreamDiffusion Output")
 - `--osc_ip`: IP address for OSC server (default: "127.0.0.1")
 - `--osc_port`: Port for OSC server (default: 9001)
+- `--guidance_scale`: Initial guidance scale (default: 1.4)
+- `--delta`: Delta for noise scheduling (default: 0.5)
+- `--acceleration`: Acceleration method ("none", "xformers", "tensorrt")
+- `--seed`: Random seed (default: 2)
+
+## Creative Applications
+
+This integration enables several creative use cases:
+
+- **Live VJ Performance**: Change visual styles in real-time to match music
+- **Interactive Installations**: Let users control the AI through interfaces that send OSC
+- **Experimental Filmmaking**: Create unique visual effects controlled via OSC
+- **Mixed Media Performance**: Integrate with DAWs and performance software
 
 ## Troubleshooting
 
@@ -86,11 +119,21 @@ The script accepts the following parameters:
 - **NDI sources not detected**: Make sure NDI sources are active on your network
 - **Python errors**: Ensure you're using Python 3.10 with all dependencies installed
 - **Performance issues**: Try reducing width and height for better performance
+- **Model loading issues**: First run may take time to download the model
 
 ## Integrations
 
 This setup works well with:
-- Max/MSP and Pure Data for creative applications
-- TouchOSC for mobile control
-- VJ software like Resolume 
-- DAWs like Ableton Live with OSC capabilities
+- **Max/MSP** and Pure Data for creative applications
+- **TouchOSC** for mobile control
+- **VJ software** like Resolume or VDMX
+- **DAWs** like Ableton Live with OSC capabilities
+- **Custom interfaces** built with OSC-capable frameworks
+
+## For Developers
+
+If you want to extend this implementation:
+
+- Add new OSC commands in the handler functions
+- The OSC server runs in a separate thread to avoid blocking the main process
+- All parameters are synchronized using thread locks to prevent race conditions

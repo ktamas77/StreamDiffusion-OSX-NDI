@@ -10,6 +10,7 @@ This repository contains a macOS-compatible version of StreamDiffusion, allowing
 
 - **macOS Compatibility**: Optimized for Apple Silicon and Intel Macs
 - **NDI Support**: Stream to and from NDI sources
+- **OSC Control**: Real-time prompt control via OSC messages
 - **Real-time Image Generation**: Process video streams in real-time with AI
 - **Multiple Examples**: Various sample applications showing different use cases
 
@@ -34,6 +35,20 @@ The NDI example demonstrates how to use StreamDiffusion with NDI sources and out
                                 --prompt "cyberpunk neon city, detailed"
 ```
 
+### NDI-OSC Integration (`examples/ndi-osc/`)
+
+The NDI-OSC example adds real-time creative control via OSC messages. This allows you to change prompts and parameters on the fly using tools like TouchOSC, Max/MSP, or any OSC-capable software. See the [NDI-OSC README](examples/ndi-osc/README.md) for details.
+
+```bash
+# Run the NDI-OSC server
+./examples/ndi-osc/run_ndi_osc.py
+
+# Send OSC commands from another application or terminal
+# Examples (using oscsend or similar tools):
+oscsend localhost 9001 /prompt s "surreal landscape, dreamy atmosphere"
+oscsend localhost 9001 /guidance_scale f 2.5
+```
+
 ### NDI Testing Tools (`examples/test-ndi/`)
 
 A suite of tools for testing NDI functionality and diagnosing issues. See the [NDI Testing README](examples/test-ndi/README.md) for details.
@@ -51,6 +66,7 @@ A suite of tools for testing NDI functionality and diagnosing issues. See the [N
 - macOS 11 or later
 - Python 3.10 recommended for NDI support (Python 3.13 not compatible with NDI)
 - NDI SDK installed (optional, falls back to webcam if not available)
+- python-osc (for NDI-OSC integration)
 
 ## Installation
 
@@ -58,18 +74,30 @@ For detailed installation instructions, see the [Installation Guide](examples/te
 
 ```bash
 # Clone this repository
-git clone https://github.com/ktamas77/StreamDiffusion-OSX.git
-cd StreamDiffusion-OSX
+git clone https://github.com/ktamas77/StreamDiffusion-OSX-NDI.git
+cd StreamDiffusion-OSX-NDI
 
 # Set up Python environment (for NDI support)
 pyenv install 3.10.12
 pyenv virtualenv 3.10.12 ndi-env
 pyenv activate ndi-env
 
-# Install dependencies
+# Basic installation
 pip install -e .
 pip install -r examples/ndi/requirements.txt
+
+# For OSC support
+pip install python-osc==1.8.3
 ```
+
+## Creative Applications
+
+This fork enables several creative applications:
+
+- **VJ Systems**: Connect to VJ software for AI-enhanced visuals
+- **Live Performance**: Control the AI parameters in real-time via OSC
+- **Video Production**: Process NDI sources from cameras or software
+- **Interactive Installations**: Create responsive AI visual experiences
 
 ## Original Documentation
 
