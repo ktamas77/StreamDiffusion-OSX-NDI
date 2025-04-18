@@ -3,6 +3,8 @@
 NDI-OSC integration for StreamDiffusion on macOS.
 Receives video from NDI sources, applies AI image generation based on prompts received via OSC,
 and outputs the processed video as an NDI source.
+
+This stable version uses the NDIHandler class for better compatibility.
 """
 
 import os
@@ -22,46 +24,58 @@ from pythonosc.dispatcher import Dispatcher
 from pythonosc.osc_server import BlockingOSCUDPServer, ThreadingOSCUDPServer
 
 sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.append(os.path.join(os.path.dirname(__file__), "..", "test-ndi"))
 
 from utils.viewer import receive_images
 from examples.ndi.fixed_wrapper import FixedStreamDiffusionWrapper
 
-# Define NDISimulator class globally
-class NDISimulator:
-    def __init__(self):
-        print("NDI SDK not found - using webcam simulator instead")
-    
-    def initialize(self):
-        return True
-    
-    def terminate(self):
-        pass
-    
-    def destroy(self):
-        pass
-    
-    class Finder:
-        def wait_for_sources(self, timeout):
-            time.sleep(timeout / 1000)
-            
-        def get_sources(self):
-            return [type('NDISource', (), {'name': 'Webcam0'})]
-
-# Try to import NDI module from Python 3.10 environment
+# Import NDI handler from test-ndi
 try:
-    # First try importing the NDI Python binding from Python 3.10 environment
-    import NDIlib as ndi
-    print("Using NDIlib for NDI functionality")
-    using_simulator = False
+    from ndi_driver import NDIHandler
+    print("Using NDIHandler for NDI functionality")
+    HAS_NDI_HANDLER = True
 except ImportError:
-    # Create a simple fallback
-    ndi = NDISimulator()
-    using_simulator = True
-    print("NDI SDK not found - using webcam simulator instead")
+    print("NDIHandler not found, using built-in NDI handling")
+    HAS_NDI_HANDLER = False
+    
+    # Define NDISimulator class globally
+    class NDISimulator:
+        def __init__(self):
+            print("NDI SDK not found - using webcam simulator instead")
+        
+        def initialize(self):
+            return True
+        
+        def terminate(self):
+            pass
+        
+        def destroy(self):
+            pass
+        
+        class Finder:
+            def wait_for_sources(self, timeout):
+                time.sleep(timeout / 1000)
+                
+            def get_sources(self):
+                return [type('NDISource', (), {'name': 'Webcam0'})]
+
+    # Try to import NDI module from Python 3.10 environment
+    try:
+        # First try importing the NDI Python binding from Python 3.10 environment
+        import NDIlib as ndi
+        print("Using NDIlib for NDI functionality")
+        using_simulator = False
+    except ImportError:
+        # Create a simple fallback
+        ndi = NDISimulator()
+        using_simulator = True
+        print("NDI SDK not found - using webcam simulator instead")
 
 # Global variables
 inputs = []
 current_prompt = "cyberpunk neon city, vaporwave aesthetic, vibrant colors"
+current_negative_prompt = "low quality, bad quality, blurry, low resolution"
+current_guidance_scale = 1.4
 prompt_lock = threading.Lock()
 
 def webcam_receiver(
@@ -105,13 +119,92 @@ def webcam_receiver(
             cap.release()
         print('Exited webcam receiver')
 
+def ndi_receiver_with_handler(
+    event: threading.Event,
+    height: int = 512,
+    width: int = 512,
+    ndi_source_name: Optional[str] = None,
+):
+    """NDI receiver using NDIHandler class"""
+    global inputs
+    
+    try:
+        handler = NDIHandler()
+        
+        # Find sources
+        print("Finding NDI sources...")
+        sources = handler.find_sources(5000)
+        
+        if not sources:
+            print("No NDI sources found, falling back to webcam")
+            return webcam_receiver(event, height, width)
+        
+        # Select source
+        selected_source = None
+        if ndi_source_name:
+            for source in sources:
+                source_name = str(source)
+                if hasattr(source, 'name'):
+                    source_name = source.name
+                
+                if ndi_source_name in source_name:
+                    selected_source = source
+                    break
+        
+        if not selected_source:
+            selected_source = sources[0]
+            print(f"Using NDI source: {selected_source}")
+        
+        # Create receiver
+        receiver_id = handler.create_receiver(selected_source)
+        if not receiver_id:
+            print("Failed to create NDI receiver, falling back to webcam")
+            handler.cleanup()
+            return webcam_receiver(event, height, width)
+        
+        # Main loop
+        print(f"Receiving NDI video from: {selected_source}")
+        while not event.is_set():
+            # Receive frame
+            frame = handler.receive_frame(receiver_id, 100)
+            if not frame:
+                continue
+            
+            # Convert to PIL Image
+            try:
+                # Extract frame data
+                img_array = np.array(frame)
+                if hasattr(frame, 'data'):
+                    img_array = np.array(frame.data)
+                
+                # Convert to PIL Image and resize
+                img = PIL.Image.fromarray(img_array).convert('RGB')
+                img = img.resize((width, height))
+                
+                # Add to inputs queue
+                inputs.append(torch.from_numpy(np.array(img).astype(np.float32) / 255.0).permute(2, 0, 1))
+            except Exception as e:
+                print(f"Error processing NDI frame: {e}")
+                continue
+        
+        # Clean up
+        handler.cleanup()
+        print("Exited NDI receiver")
+        
+    except Exception as e:
+        print(f"Error in NDI receiver: {e}")
+        return webcam_receiver(event, height, width)
+
 def ndi_receiver(
     event: threading.Event,
     height: int = 512,
     width: int = 512,
     ndi_source_name: Optional[str] = None,
 ):
-    """NDI receiver thread"""
+    """NDI receiver thread - uses NDIHandler if available, otherwise fallback"""
+    if HAS_NDI_HANDLER:
+        return ndi_receiver_with_handler(event, height, width, ndi_source_name)
+    
     global inputs
     
     # Initialize NDI
@@ -135,7 +228,7 @@ def ndi_receiver(
                 
         if not sources:
             print("No NDI sources found, falling back to webcam")
-            if finder and not using_simulator:
+            if 'finder' in locals() and finder and not using_simulator:
                 ndi.find_destroy(finder)
             return webcam_receiver(event, height, width)
         
@@ -184,7 +277,7 @@ def ndi_receiver(
             
         if not receiver:
             print("Failed to create NDI receiver, falling back to webcam")
-            if finder and not using_simulator:
+            if 'finder' in locals() and finder and not using_simulator:
                 ndi.find_destroy(finder)
             return webcam_receiver(event, height, width)
         
@@ -236,6 +329,58 @@ def ndi_receiver(
         print(f"Error in NDI receiver: {e}")
         return webcam_receiver(event, height, width)
 
+def ndi_sender_with_handler(
+    event: threading.Event,
+    output_queue: Queue,
+    height: int = 512,
+    width: int = 512,
+    ndi_output_name: str = "StreamDiffusion Output",
+):
+    """NDI sender using NDIHandler class"""
+    try:
+        # Create a CV2 window as fallback display
+        cv2.namedWindow(ndi_output_name, cv2.WINDOW_NORMAL)
+        cv2.resizeWindow(ndi_output_name, width, height)
+        
+        # Create NDI sender
+        handler = NDIHandler()
+        sender_id = handler.create_sender(ndi_output_name)
+        if sender_id:
+            print(f"Created NDI output: {ndi_output_name}")
+        
+        while not event.is_set():
+            if not output_queue.empty():
+                # Get the next frame from queue
+                output_tensor = output_queue.get(block=False)
+                
+                # Convert tensor to numpy array
+                output_array = (output_tensor.permute(1, 2, 0).numpy() * 255).astype(np.uint8)
+                
+                # Always show in OpenCV window
+                cv2.imshow(ndi_output_name, cv2.cvtColor(output_array, cv2.COLOR_RGB2BGR))
+                cv2.waitKey(1)
+                
+                # Send via NDI if sender exists
+                if sender_id:
+                    try:
+                        # Create NDI video frame
+                        frame = type('NDIVideoFrame', (), {})
+                        frame.data = output_array
+                        frame.width = width
+                        frame.height = height
+                        handler.send_frame(sender_id, frame)
+                    except Exception as e:
+                        print(f"Error sending NDI frame: {e}")
+            
+            time.sleep(0.001)
+    except Exception as e:
+        print(f"Error in NDI sender: {e}")
+    finally:
+        cv2.destroyAllWindows()
+        if 'handler' in locals():
+            handler.cleanup()
+        print("Exited NDI sender")
+
 def ndi_sender(
     event: threading.Event,
     output_queue: Queue,
@@ -243,7 +388,10 @@ def ndi_sender(
     width: int = 512,
     ndi_output_name: str = "StreamDiffusion Output",
 ):
-    """NDI sender thread"""
+    """NDI sender thread - uses NDIHandler if available, otherwise fallback"""
+    if HAS_NDI_HANDLER:
+        return ndi_sender_with_handler(event, output_queue, height, width, ndi_output_name)
+    
     try:
         # Create a CV2 window as fallback display
         cv2.namedWindow(ndi_output_name, cv2.WINDOW_NORMAL)
@@ -273,7 +421,7 @@ def ndi_sender(
                 cv2.waitKey(1)
                 
                 # Send via NDI if sender exists
-                if sender:
+                if 'sender' in locals() and sender:
                     try:
                         # Create video frame
                         if hasattr(ndi, 'VideoFrameV2'):
@@ -368,6 +516,7 @@ def image_generation_process(
     similar_image_filter_threshold: float,
     similar_image_filter_max_skip_frame: float,
     ndi_source_name: Optional[str] = None,
+    ndi_output_name: str = "StreamDiffusion Output",
     osc_ip: str = "127.0.0.1",
     osc_port: int = 9001,
 ) -> None:
@@ -414,7 +563,7 @@ def image_generation_process(
     # Create input and output threads
     event = threading.Event()
     input_thread = threading.Thread(target=ndi_receiver, args=(event, height, width, ndi_source_name))
-    output_thread = threading.Thread(target=ndi_sender, args=(event, output_queue, height, width))
+    output_thread = threading.Thread(target=ndi_sender, args=(event, output_queue, height, width, ndi_output_name))
     
     input_thread.start()
     output_thread.start()
@@ -540,7 +689,24 @@ def main(
     - /guidance_scale <float> : Set a new guidance scale value
     """
     # Show NDI sources if available
-    if not using_simulator:
+    if HAS_NDI_HANDLER:
+        try:
+            handler = NDIHandler()
+            sources = handler.find_sources(2000)
+            
+            print("Available NDI sources:")
+            for i, source in enumerate(sources):
+                source_name = None
+                if hasattr(source, 'name'):
+                    source_name = source.name
+                else:
+                    source_name = str(source)
+                print(f"{i}: {source_name}")
+            
+            handler.cleanup()
+        except Exception as e:
+            print(f"Error listing NDI sources: {e}")
+    elif not using_simulator:
         if ndi.initialize():
             finder = ndi.find_create_v2()
             if finder:
@@ -593,6 +759,7 @@ def main(
             similar_image_filter_threshold,
             similar_image_filter_max_skip_frame,
             ndi_source_name,
+            ndi_output_name,
             osc_ip,
             osc_port,
         ),
