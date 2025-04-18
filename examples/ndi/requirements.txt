@@ -1,0 +1,6 @@
+matplotlib
+pillow
+numpy
+opencv-python
+# Note: NDI binding needs to be installed separately
+# Visit https://ndi.tv/sdk/ to download the NDI SDK

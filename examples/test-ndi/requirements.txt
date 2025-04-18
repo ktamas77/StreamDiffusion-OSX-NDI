@@ -1,0 +1,27 @@
+# NDI-specific requirements
+ndi-python==5.1.1.5
+numpy==2.2.4
+pillow==11.2.1
+
+# For the fallback simulator
+opencv-python==4.11.0.86
+
+# StreamDiffusion basic requirements
+fire==0.7.0
+omegaconf==2.3.0
+tqdm==4.67.1
+requests==2.32.3
+PyYAML==6.0.2
+packaging==24.2
+
+# For running StreamDiffusion examples (install these when needed)
+# torch==2.6.0
+# torchvision==0.21.0
+# diffusers==0.33.1
+# transformers==4.51.3 
+# accelerate==1.6.0
+
+# Other utilities 
+filelock==3.18.0
+fsspec==2025.3.2
+typing_extensions==4.13.2
