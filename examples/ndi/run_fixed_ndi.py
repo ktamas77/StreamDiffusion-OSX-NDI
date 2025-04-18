@@ -21,31 +21,37 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "..", ".."))
 from utils.viewer import receive_images
 from examples.ndi.fixed_wrapper import FixedStreamDiffusionWrapper
 
+# Define NDISimulator class globally
+class NDISimulator:
+    def __init__(self):
+        print("NDI SDK not found - using webcam simulator instead")
+    
+    def initialize(self):
+        return True
+    
+    def terminate(self):
+        pass
+    
+    def destroy(self):
+        pass
+    
+    class Finder:
+        def wait_for_sources(self, timeout):
+            time.sleep(timeout / 1000)
+            
+        def get_sources(self):
+            return [type('NDISource', (), {'name': 'Webcam0'})]
+
 # Try to import NDI module from Python 3.10 environment
 try:
     # First try importing the NDI Python binding from Python 3.10 environment
     import NDIlib as ndi
     print("Using NDIlib for NDI functionality")
+    using_simulator = False
 except ImportError:
     # Create a simple fallback
-    class NDISimulator:
-        def __init__(self):
-            print("NDI SDK not found - using webcam simulator instead")
-        
-        def initialize(self):
-            return True
-        
-        def terminate(self):
-            pass
-        
-        class Finder:
-            def wait_for_sources(self, timeout):
-                time.sleep(timeout / 1000)
-                
-            def get_sources(self):
-                return [type('NDISource', (), {'name': 'Webcam0'})]
-        
     ndi = NDISimulator()
+    using_simulator = True
     print("NDI SDK not found - using webcam simulator instead")
 
 # Global variables for input/output frames
@@ -110,7 +116,7 @@ def ndi_receiver(
         
         # Find NDI sources
         sources = []
-        if isinstance(ndi, NDISimulator):
+        if using_simulator:
             finder = ndi.Finder()
             finder.wait_for_sources(5000) 
             sources = finder.get_sources()
@@ -122,7 +128,7 @@ def ndi_receiver(
                 
         if not sources:
             print("No NDI sources found, falling back to webcam")
-            if finder and not isinstance(ndi, NDISimulator):
+            if finder and not using_simulator:
                 ndi.find_destroy(finder)
             return webcam_receiver(event, height, width)
         
@@ -155,7 +161,7 @@ def ndi_receiver(
         
         # Create receiver
         receiver = None
-        if isinstance(ndi, NDISimulator):
+        if using_simulator:
             receiver = ndi.Receiver()
             receiver.connect(selected_source)
         else:
@@ -171,7 +177,7 @@ def ndi_receiver(
             
         if not receiver:
             print("Failed to create NDI receiver, falling back to webcam")
-            if finder and not isinstance(ndi, NDISimulator):
+            if finder and not using_simulator:
                 ndi.find_destroy(finder)
             return webcam_receiver(event, height, width)
         
@@ -179,7 +185,7 @@ def ndi_receiver(
         while not event.is_set():
             # Receive video frame
             frame = None
-            if isinstance(ndi, NDISimulator):
+            if using_simulator:
                 success, frame = receiver.capture_video(1000)
                 if not success:
                     continue
@@ -210,7 +216,7 @@ def ndi_receiver(
                 continue
         
         # Clean up
-        if isinstance(ndi, NDISimulator):
+        if using_simulator:
             receiver.disconnect()
         else:
             if finder:
@@ -238,7 +244,7 @@ def ndi_sender(
         
         # Create NDI sender if possible
         sender = None
-        if not isinstance(ndi, NDISimulator):
+        if not using_simulator:
             if hasattr(ndi, 'send_create'):
                 sender_config = ndi.SendCreate()
                 if hasattr(sender_config, 'p_ndi_name'):
@@ -277,7 +283,7 @@ def ndi_sender(
         print(f"Error in NDI sender: {e}")
     finally:
         cv2.destroyAllWindows()
-        if sender and not isinstance(ndi, NDISimulator):
+        if sender and not using_simulator:
             ndi.send_destroy(sender)
         print('Exited NDI sender')
 
@@ -412,7 +418,7 @@ def main(
 ) -> None:
     """Main function to start the stream processing with StreamDiffusion."""
     # Show NDI sources if available
-    if not isinstance(ndi, NDISimulator):
+    if not using_simulator:
         if ndi.initialize():
             finder = ndi.find_create_v2()
             if finder:
